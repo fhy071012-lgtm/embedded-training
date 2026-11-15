@@ -1,1 +1,13 @@
+[package]
+name = "host-protocol-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
 
+[lib]
+path = "src/lib.rs"
+
+# 空 workspace 表把本 crate 声明为独立 workspace，
+# 阻止它被主固件 crate 的 workspace 逻辑吸收，
+# 也阻止它继承主 crate 的 .cargo/config.toml（arm target）。
+[workspace]
