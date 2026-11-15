@@ -6,6 +6,7 @@ mod dap_usb;
 mod protocol;
 pub mod swd;
 mod wiring;
+mod host_protocol;   // ← 新增这一行
 
 use board::Usb;
 use embassy_executor::Spawner;
@@ -22,23 +23,27 @@ use static_cell::StaticCell;
 use swd::Swd;
 
 const PACKET: usize = 64;
+
 // Track linker-script changes so Cargo relinks the firmware.
 const _: &[u8] = include_bytes!("../memory.x");
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let (driver, ports, swd) = wiring::configure(board::init());
+
     // Classroom-only test VID/PID, not allocated product identifiers.
     let mut config = embassy_usb::Config::new(0xC0DE, 0xCAFC);
     config.manufacturer = Some("HerKules");
     config.product = Some("DM-MC02 CMSIS-DAP Demo");
     config.max_packet_size_0 = PACKET as u8;
+
     static DESC: StaticCell<[u8; 256]> = StaticCell::new();
     static MSOS: StaticCell<[u8; 256]> = StaticCell::new();
     static BOS: StaticCell<[u8; 128]> = StaticCell::new();
     static CONTROL: StaticCell<[u8; 64]> = StaticCell::new();
     static CTL_STATE: StaticCell<State> = StaticCell::new();
     static UART_STATE: StaticCell<State> = StaticCell::new();
+
     let mut builder = Builder::new(
         driver,
         config,
@@ -48,10 +53,12 @@ async fn main(_spawner: Spawner) {
         CONTROL.init([0; 64]),
     );
     builder.msos_descriptor(0x0603_0000, 0x20);
+
     let dap = dap_usb::DapUsb::new(&mut builder);
     let control = CdcAcmClass::new(&mut builder, CTL_STATE.init(State::new()), PACKET as u16);
     let serial = CdcAcmClass::new(&mut builder, UART_STATE.init(State::new()), PACKET as u16);
     let mut device = builder.build();
+
     join4(
         device.run(),
         control_port(control, ports.can, swd),
@@ -84,10 +91,11 @@ async fn control_port(
     }
 }
 
-async fn uart_port(usb: CdcAcmClass<'static, Usb>, uart: Option<BufferedUart<'static>>) {
-    let Some(uart) = uart else {
-        return;
-    };
+async fn uart_port(
+    usb: CdcAcmClass<'static, Usb>,
+    uart: Option<BufferedUart<'static, embassy_stm32::peripherals::UART7>>,
+) {
+    let Some(uart) = uart else { return };
     let (mut serial_out, mut serial_in) = uart.split();
     let (mut usb_out, mut usb_in) = usb.split();
     loop {
